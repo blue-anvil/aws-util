@@ -1,0 +1,31 @@
+Deduplicate staging bucket against prod (size-based, no download)
+-----------------------------------------------------------------
+
+Use this workflow when buckets are too large to download for hashing.
+Matches files by key name + size. No data is downloaded from S3.
+
+Set credentials via env vars before running (copy-paste per bucket as needed):
+
+    export AWS_ACCESS_KEY_ID=...
+    export AWS_SECRET_ACCESS_KEY=...
+    export AWS_DEFAULT_REGION=...
+
+Step 1 - List prod bucket with sizes:
+
+    python generate_manifest.py -b my-prod-bucket -f prod.txt
+
+Step 2 - List staging bucket with sizes:
+
+    python generate_manifest.py -b my-staging-bucket -f staging.txt
+
+Step 3 - Find files that exist in both with matching size:
+
+    python compare_hashes.py prod.txt staging.txt -f to_delete.txt
+
+Step 4 - Verify what will be deleted:
+
+    python delete_files.py -b my-staging-bucket -f to_delete.txt -t
+
+Step 5 - Execute deletions:
+
+    python delete_files.py -b my-staging-bucket -f to_delete.txt
