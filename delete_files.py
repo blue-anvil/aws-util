@@ -1,10 +1,12 @@
 import boto3
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('-b', '--bucket', required=True)
 parser.add_argument('-f', '--file', required=True)
 parser.add_argument('-t', '--test', action='store_true', default=False)
+parser.add_argument('-w', '--workers', type=int, default=20)
 args = parser.parse_args()
 
 with open(args.file) as f:
@@ -31,7 +33,7 @@ if answer.lower() != 'y':
 s3 = boto3.client('s3')
 paginator = s3.get_paginator('list_object_versions')
 
-for key in keys:
+def collect_versions(key):
     objects = []
     for page in paginator.paginate(Bucket=args.bucket, Prefix=key):
         for v in page.get('Versions', []):
@@ -40,8 +42,21 @@ for key in keys:
         for m in page.get('DeleteMarkers', []):
             if m['Key'] == key:
                 objects.append({'Key': m['Key'], 'VersionId': m['VersionId']})
-    if objects:
-        s3.delete_objects(Bucket=args.bucket, Delete={'Objects': objects})
-        print(f"Deleted {len(objects)} versions: {key}")
+    return objects
 
-print("Done.")
+all_objects = []
+with ThreadPoolExecutor(max_workers=args.workers) as executor:
+    futures = {executor.submit(collect_versions, key): key for key in keys}
+    for future in as_completed(futures):
+        all_objects.extend(future.result())
+
+total_versions = len(all_objects)
+chunk_size = 1000
+deleted = 0
+for i in range(0, total_versions, chunk_size):
+    chunk = all_objects[i:i + chunk_size]
+    s3.delete_objects(Bucket=args.bucket, Delete={'Objects': chunk})
+    deleted += len(chunk)
+    print(f"Deleted {deleted}/{total_versions} versions...")
+
+print(f"Done. Deleted {total_versions} versions across {len(keys)} keys.")
