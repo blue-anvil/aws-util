@@ -16,6 +16,8 @@ lines = []
 for page in paginator.paginate(Bucket=args.bucket, Prefix=args.prefix):
     for obj in page.get('Contents', []):
         key = obj['Key']
+        if key.endswith('/'):
+            continue
         if args.test:
             print(key)
             continue
