@@ -1,7 +1,8 @@
 import boto3
 import argparse
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('-b', '--bucket', required=True)
@@ -24,17 +25,23 @@ if args.test:
     for key in keys:
         print(key)
 else:
+    _local = threading.local()
+
     def hash_key(key):
-        client = boto3.client('s3')
-        response = client.get_object(Bucket=args.bucket, Key=key)
+        if not hasattr(_local, 'client'):
+            _local.client = boto3.client('s3')
+        response = _local.client.get_object(Bucket=args.bucket, Key=key)
         sha256 = hashlib.sha256()
-        for chunk in response['Body'].iter_chunks(chunk_size=65536):
+        for chunk in response['Body'].iter_chunks(chunk_size=8 * 1024 * 1024):
             sha256.update(chunk)
         return f"{sha256.hexdigest()}  {key}"
 
+    lines = []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        lines = list(executor.map(hash_key, keys))
+        futures = {executor.submit(hash_key, key): key for key in keys}
+        for future in as_completed(futures):
+            line = future.result()
+            lines.append(line)
+            print(line)
 
-    for line in lines:
-        print(line)
     open(args.file, 'w').write('\n'.join(lines))
