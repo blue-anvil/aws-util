@@ -1,12 +1,10 @@
 import boto3
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('-b', '--bucket', required=True)
 parser.add_argument('-f', '--file', required=True)
 parser.add_argument('-t', '--test', action='store_true', default=False)
-parser.add_argument('-w', '--workers', type=int, default=20)
 args = parser.parse_args()
 
 with open(args.file) as f:
@@ -21,7 +19,8 @@ if args.test:
 print("--- WARNING WARNING WARNING ---")
 print("--- WARNING WARNING WARNING ---")
 print("--- WARNING WARNING WARNING ---")
-print(f"Delete all versions of {len(keys)} files in s3://{args.bucket}/ ?")
+print(f"Delete current version of {len(keys)} files in s3://{args.bucket}/ ?")
+print("(Old versions will remain. Use nuke-bucket to remove everything.)")
 print("--- WARNING WARNING WARNING ---")
 print("--- WARNING WARNING WARNING ---")
 print("--- WARNING WARNING WARNING ---")
@@ -31,32 +30,13 @@ if answer.lower() != 'y':
     exit()
 
 s3 = boto3.client('s3')
-paginator = s3.get_paginator('list_object_versions')
-
-def collect_versions(key):
-    objects = []
-    for page in paginator.paginate(Bucket=args.bucket, Prefix=key):
-        for v in page.get('Versions', []):
-            if v['Key'] == key:
-                objects.append({'Key': v['Key'], 'VersionId': v['VersionId']})
-        for m in page.get('DeleteMarkers', []):
-            if m['Key'] == key:
-                objects.append({'Key': m['Key'], 'VersionId': m['VersionId']})
-    return objects
-
-all_objects = []
-with ThreadPoolExecutor(max_workers=args.workers) as executor:
-    futures = {executor.submit(collect_versions, key): key for key in keys}
-    for future in as_completed(futures):
-        all_objects.extend(future.result())
-
-total_versions = len(all_objects)
 chunk_size = 1000
 deleted = 0
-for i in range(0, total_versions, chunk_size):
-    chunk = all_objects[i:i + chunk_size]
+
+for i in range(0, len(keys), chunk_size):
+    chunk = [{'Key': k} for k in keys[i:i + chunk_size]]
     s3.delete_objects(Bucket=args.bucket, Delete={'Objects': chunk})
     deleted += len(chunk)
-    print(f"Deleted {deleted}/{total_versions} versions...")
+    print(f"Deleted {deleted}/{len(keys)}...")
 
-print(f"Done. Deleted {total_versions} versions across {len(keys)} keys.")
+print(f"Done. {len(keys)} files removed from current view.")
