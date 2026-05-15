@@ -23,7 +23,7 @@ for page in paginator.paginate(Bucket=args.bucket, Prefix=args.prefix):
             continue
         response = s3.get_object(Bucket=args.bucket, Key=key)
         sha256 = hashlib.sha256()
-        for chunk in response['Body'].iter_chunks(chunk_size=65536):
+        for chunk in response['Body'].iter_chunks(chunk_size=8388608):
             sha256.update(chunk)
         digest = sha256.hexdigest()
         line = f"{digest}  {key}"
